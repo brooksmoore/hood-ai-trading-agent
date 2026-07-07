@@ -1,0 +1,26 @@
+{
+  "chart": {
+    "result": [
+      {
+        "meta": {
+          "currency": "USD",
+          "symbol": "HOLO",
+          "regularMarketPrice": 1.73,
+          "previousClose": 1.70,
+          "regularMarketVolume": 742150,
+          "averageDailyVolume3Month": 1200000
+        },
+        "timestamp": [1710000000],
+        "indicators": {
+          "quote": [
+            {
+              "close": [1.73],
+              "volume": [742150]
+            }
+          ]
+        }
+      }
+    ],
+    "error": null
+  }
+}

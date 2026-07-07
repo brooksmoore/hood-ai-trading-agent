@@ -1,0 +1,53 @@
+# Monitored universe for real paper runner (U-A) — REBUILT 2026-06-27.
+# Screened empirically against the bot's OWN EDGAR client + live Yahoo quotes from a pool of
+# 713 companies that filed an 8-K or S-3 in the last 30 days (EDGAR full-text search).
+# Every ticker below: (1) resolves to a CIK, (2) filed a real 8-K/S-3 <=30d ago, (3) prices live.
+# Funds/ETFs/BDCs/SPACs excluded; sector-diversified; biased to the small end.
+#
+# TIER A — small-cap operating companies, modeled spread <=2% so they PASS the Section-11
+#          spread veto and can produce paper trades NOW via the Yahoo quote feed.
+
+EDSA   # $8.19 spr~2.0% $ADV~2,712,159 | 8-K 2026-06-05 | Edesa Biotech, Inc.
+JTAI   # $7.30 spr~2.0% $ADV~2,912,116 | 8-K 2026-06-12 | Jet.AI Inc.
+TRAK   # $9.19 spr~1.9% $ADV~3,041,246 | 8-K 2026-06-18 | ReposiTrak, Inc.
+RTB    # $11.57 spr~1.9% $ADV~3,195,229 | 8-K 2026-06-05 | RTB Digital, Inc.
+STEM   # $7.36 spr~1.8% $ADV~3,632,344 | S-3 2026-06-02 | STEM, INC.
+ACET   # $8.37 spr~1.7% $ADV~4,002,533 | 8-K 2026-06-18 | Adicet Bio, Inc.
+AKTX   # $10.73 spr~1.5% $ADV~4,911,067 | 8-K 2026-06-26 | Akari Therapeutics Plc
+AGPU   # $7.16 spr~1.8% $ADV~5,682,426 | S-3 2026-06-09 | Axe Compute Inc.
+JILL   # $15.89 spr~1.3% $ADV~6,603,010 | 8-K 2026-06-05 | J.Jill, Inc.
+ELWT   # $6.57 spr~1.9% $ADV~6,912,658 | 8-K 2026-06-18 | Elauwit Connection, Inc.
+FRBT   # $18.19 spr~1.2% $ADV~7,415,153 | 8-K 2026-06-12 | Forbright, Inc.
+LIXT   # $7.19 spr~1.8% $ADV~7,693,048 | 8-K 2026-06-18 | LIXTE BIOTECHNOLOGY HOLDINGS, INC.
+HGTY   # $11.76 spr~1.3% $ADV~9,978,948 | 8-K 2026-06-12 | Hagerty, Inc.
+ULH    # $15.30 spr~1.1% $ADV~10,897,348 | 8-K 2026-06-26 | UNIVERSAL LOGISTICS HOLDINGS, INC.
+SKLZ   # $8.84 spr~1.5% $ADV~11,069,580 | 8-K 2026-06-18 | Skillz Inc.
+AII    # $18.72 spr~1.0% $ADV~11,808,576 | 8-K 2026-06-12 | American Integrity Insurance Group, In
+GEL    # $14.11 spr~1.1% $ADV~12,591,199 | 8-K 2026-06-26 | GENESIS ENERGY LP
+PCSC   # $10.93 spr~1.3% $ADV~13,684,414 | 8-K 2026-06-18 | Perceptive Capital Solutions Corp
+FINW   # $15.42 spr~1.1% $ADV~17,400,159 | 8-K 2026-06-25 | Finwise Bancorp
+DBI    # $6.24 spr~1.9% $ADV~17,531,904 | 8-K 2026-06-18 | Designer Brands Inc.
+LMNR   # $13.42 spr~1.2% $ADV~24,213,303 | 8-K 2026-06-18 | Limoneira CO
+CNNE   # $14.49 spr~1.1% $ADV~25,141,309 | 8-K 2026-06-12 | Cannae Holdings, Inc.
+CHCI   # $15.45 spr~1.1% $ADV~26,571,219 | 8-K 2026-06-18 | Comstock Holding Companies, Inc.
+AIRO   # $6.93 spr~1.8% $ADV~29,091,031 | 8-K 2026-06-05 | AIRO Group Holdings, Inc.
+ZUMZ   # $18.25 spr~1.0% $ADV~29,830,355 | 8-K 2026-06-05 | Zumiez Inc
+BCBP   # $10.47 spr~1.4% $ADV~30,335,411 | 8-K 2026-06-18 | BCB BANCORP INC
+CARS   # $10.75 spr~1.3% $ADV~30,897,327 | 8-K 2026-06-05 | Cars.com Inc.
+DFH    # $17.20 spr~1.0% $ADV~31,963,620 | 8-K 2026-06-05 | Dream Finders Homes, Inc.
+HPK    # $6.79 spr~1.8% $ADV~36,530,030 | 8-K/A 2026-06-05 | HighPeak Energy, Inc.
+KRP    # $14.78 spr~1.1% $ADV~43,567,597 | S-3 2026-06-26 | Kimbell Royalty Partners, LP
+#
+# TIER B — genuine microcap "edge zone" (capacity-constrained). Modeled spread is 5-6%, which
+#          TRIPS the Section-11 2% veto on the Yahoo feed, so these will mostly NOT trade until
+#          the Robinhood MCP real-bid/ask read path is used (real in-hours spreads may be tighter).
+#          Kept as a watchlist for that path; harmless to monitor now (they just veto, $0 risk).
+
+WGRX   # $3.05 spr~5.9% $ADV~309,590 | 8-K 2026-06-12 | Wellgistics Health, Inc.
+EZRA   # $3.43 spr~5.7% $ADV~335,848 | 8-K 2026-06-25 | Reliance Global Group, Inc.
+NOMA   # $3.65 spr~5.3% $ADV~380,056 | 8-K 2026-06-05 | Nomadar Corp.
+BHLL   # $3.20 spr~5.3% $ADV~389,916 | S-3 2026-06-24 | Bunker Hill Mining Corp.
+SLE    # $3.07 spr~5.2% $ADV~398,946 | S-3 2026-06-12 | Super League Enterprise, Inc.
+KALA   # $2.52 spr~5.5% $ADV~402,519 | S-3/A 2026-06-12 | KALA BIO, Inc.
+RNAZ   # $4.97 spr~5.5% $ADV~409,925 | 8-K 2026-06-18 | Transcode Therapeutics, Inc.
+MSGM   # $3.83 spr~5.1% $ADV~419,327 | 8-K 2026-06-26 | Motorsport Games Inc.

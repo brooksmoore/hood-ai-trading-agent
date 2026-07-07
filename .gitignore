@@ -1,0 +1,76 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# Virtualenv
+.venv/
+venv/
+ENV/
+env/
+
+# Secrets (CRITICAL — never commit) [added 2026-06-07 security pass]
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.p12
+secrets/
+
+# Project
+data/*.db
+data/KILL_SWITCH
+logs/*.jsonl
+logs/*.json
+*.log
+__pycache__/
+.DS_Store
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Phase outputs (keep structure, ignore runs)
+graveyard.db
+decision_log.jsonl
+budget.json
+
+# Runtime data/output (bot-local, never commit) [2026-07-06]
+/data/
+/data_real/
+/logs/
+/replay/
+/.claude/
+
+# Internal ops/audit docs (bot-local working notes, not for the public repo)
+# [added 2026-07-06, portfolio-cleanup pass]
+AGENTS.md
+GROK.md
+CLAUDE.md
+CLAUDE_AUDITOR_HANDOFF.md
+DEFINITION_OF_DONE.md
+AUDIT_LEDGER.md
+STATUS.md
+RH_MCP_TOOL_SURVEY.md
+GROK_HANDOFF_*.md
+*_CHANGELOG.md

@@ -1,0 +1,7 @@
+# Phase 2+ only new dependency (pinned per handoff)
+anthropic==0.45.2
+
+# Robinhood Read-Only (this pass) - official mcp Python client SDK (pinned; owner-approved for MCP integrations)
+mcp>=1.0.0,<2.0.0
+
+# All other runtime is stdlib + sqlite3 (no other pip deps)

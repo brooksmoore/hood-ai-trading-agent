@@ -1,0 +1,9 @@
+{
+  "finance": {
+    "result": null,
+    "error": {
+      "code": "Unauthorized",
+      "description": "User is unable to access this feature"
+    }
+  }
+}
