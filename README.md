@@ -90,3 +90,7 @@ pre-registered bar on that forward evidence, not backtest performance. See `INVA
 the specific safety properties this system is designed to never let a future change weaken.
 
 **Not financial advice.**
+
+---
+
+*This agent is one of a small fleet of AI-built trading systems run under a read-only supervisory layer, built through a multi-model process (one model builds, a second audits independently). The process is documented in the [case study](https://github.com/brooksmoore/ai-orchestration-case-study).*
