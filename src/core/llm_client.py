@@ -230,14 +230,35 @@ class AnthropicLLMClient:
         if cache_system:
             sys_blocks[0]["cache_control"] = {"type": "ephemeral"}  # G2
 
+        create_kwargs: dict[str, Any] = dict(
+            model=model,
+            system=sys_blocks,
+            messages=[{"role": "user", "content": user}],
+            max_tokens=max_tokens,
+            temperature=temperature,
+        )
+
         try:
-            resp = self.client.messages.create(
-                model=model,
-                system=sys_blocks,
-                messages=[{"role": "user", "content": user}],
-                max_tokens=max_tokens,
-                temperature=temperature,
-            )
+            try:
+                resp = self.client.messages.create(**create_kwargs)
+            except Exception as e:
+                # Bug fix (2026-07-09): found live — every real Opus 4.8 call since the
+                # 2026-07-06 filing-text fix (the first day candidates had real content to
+                # reach it) failed with a 400: "`temperature` is deprecated for this model."
+                # 25 EV-thesis attempts died this way over 3 days, all correctly logged as
+                # no-fabrication rejections (fail-closed did its job) but for the wrong
+                # reason — a parameter-compatibility bug, not a real EV/risk decision. This
+                # is a single BOUNDED, parameter-correcting retry (not a blind retry of the
+                # same request): only fires when the error identifies temperature as the
+                # incompatible param, and only strips that one field before resubmitting once.
+                msg = str(e).lower()
+                if "temperature" in msg and "temperature" in create_kwargs and (
+                    "deprecated" in msg or "not supported" in msg or "unsupported" in msg
+                ):
+                    retry_kwargs = {k: v for k, v in create_kwargs.items() if k != "temperature"}
+                    resp = self.client.messages.create(**retry_kwargs)
+                else:
+                    raise
             text = resp.content[0].text if resp.content else ""
             # Mandate 4: read the cache fields the SDK reports (getattr-guarded — older SDK
             # responses or non-cached calls may omit them; default 0, never fabricate a hit).

@@ -9,7 +9,7 @@ Rules:
 - Every test must be able to FAIL against broken code — that is their only job.
 - No network calls. All hermetic (fake LLM, fake MD, fake feed, tempdir).
 
-Eleven gates:
+Twelve gates:
   G1 — CalibrationGate is fail-closed (empty/bad data → FAIL, never PASS)
   G2 — Section 11 safety veto fires (halted, no_two_sided_market, spread_too_wide)
   G3 — EV engine returns None on kill/budget/malformed (no fabrication)
@@ -25,6 +25,8 @@ Eleven gates:
         candidate-events-flagged-but-zero-LLM-calls silent-death bug)
   G11 — Filing text must be HTML/XBRL-stripped before truncation (the
         100%-rejected-as-header-only silent-death bug)
+  G12 — Opus 4.8 calls must retry once, without temperature, on the
+        "temperature is deprecated for this model" 400 (bounded, targeted, not blind)
 """
 
 import sys
@@ -943,6 +945,118 @@ class GateFilingTextTruncation(unittest.TestCase):
                 f"DynamicEDGARFeed must yield readable disclosure text, not markup-crowded "
                 f"HTML. Pre-fix: raw_filing_text[:200]={trig.raw_filing_text[:200]!r} would "
                 f"be pure XBRL/namespace noise with no Item text.")
+
+
+# ---------------------------------------------------------------------------
+# G12 — Opus 4.8 temperature-parameter retry
+# ---------------------------------------------------------------------------
+
+class GateOpusTemperatureRetry(unittest.TestCase):
+    """Gate 12: found live 2026-07-09 — every real Opus 4.8 call since the 2026-07-06
+    filing-text fix (the first day candidates had real content to reach it) failed with a
+    real Anthropic 400: "`temperature` is deprecated for this model." 25 EV-thesis attempts
+    died this way over 3 days (2026-07-07 through 2026-07-09), each correctly logged as a
+    no-fabrication rejection (fail-closed worked) but for the wrong reason — a
+    parameter-compatibility bug in `AnthropicLLMClient`, not a genuine EV/risk decision.
+
+    Fix: a single BOUNDED, parameter-correcting retry — not a blind retry of the same
+    request. It only fires when the error text identifies `temperature` as the incompatible
+    parameter, and only strips that one field before resubmitting once. Any other error
+    (budget, kill, malformed, unrelated API failure) still fails through with no retry,
+    exactly as before.
+
+    Fail-before (verified by the auditor): with the retry branch removed, this test fails —
+    `complete()` returns the raw error instead of the successful retried response.
+    """
+
+    def _fake_client_rejecting_temperature(self):
+        """Builds a FakeAnthropicClient whose first call (with temperature set) raises the
+        exact real error text observed live; the retry (without temperature) succeeds.
+        """
+        class FakeUsage:
+            input_tokens = 500
+            output_tokens = 200
+            cache_creation_input_tokens = 0
+            cache_read_input_tokens = 0
+
+        class FakeContentBlock:
+            text = '{"ticker": "TEMP", "ok": true}'
+
+        class FakeResp:
+            content = [FakeContentBlock()]
+            usage = FakeUsage()
+
+        class FakeMessages:
+            def __init__(self):
+                self.calls = []
+            def create(self, **kwargs):
+                self.calls.append(kwargs)
+                if "temperature" in kwargs:
+                    raise Exception(
+                        "Error code: 400 - {'type': 'error', 'error': {'type': "
+                        "'invalid_request_error', 'message': '`temperature` is deprecated "
+                        "for this model.'}, 'request_id': 'req_test'}"
+                    )
+                return FakeResp()
+
+        class FakeAnthropicClient:
+            def __init__(self):
+                self.messages = FakeMessages()
+
+        return FakeAnthropicClient()
+
+    def test_g12_opus_call_retries_without_temperature_and_succeeds(self):
+        from src.core.llm_client import AnthropicLLMClient
+        from src.core.budget import DailyBudget, BudgetConfig
+
+        with tempfile.TemporaryDirectory() as td:
+            budget = DailyBudget(BudgetConfig(daily_usd_cap=1.0, log_path=Path(td) / "b.json"))
+            client = AnthropicLLMClient(budget=budget)
+            fake = self._fake_client_rejecting_temperature()
+            client.client = fake
+
+            resp = client.complete(model="claude-opus-4-8", system="s", user="u", temperature=0.1)
+
+            self.assertNotIn("error", resp,
+                f"Opus call must succeed via the temperature-stripping retry. "
+                f"Pre-fix (no retry): resp would contain the raw 400 error. Got: {resp}")
+            self.assertEqual(resp.get("text"), '{"ticker": "TEMP", "ok": true}')
+            self.assertEqual(len(fake.messages.calls), 2,
+                "must be exactly 2 calls: the failed original + one bounded retry")
+            self.assertIn("temperature", fake.messages.calls[0])
+            self.assertNotIn("temperature", fake.messages.calls[1],
+                "the retry must have stripped the incompatible temperature param")
+
+    def test_g12_unrelated_error_does_not_trigger_retry(self):
+        """Sanity: an error that does NOT mention temperature must fail through normally —
+        this is a targeted parameter-correction, not a general retry-on-any-failure.
+        """
+        from src.core.llm_client import AnthropicLLMClient
+        from src.core.budget import DailyBudget, BudgetConfig
+
+        class FakeMessages:
+            def __init__(self):
+                self.calls = 0
+            def create(self, **kwargs):
+                self.calls += 1
+                raise Exception("Error code: 429 - rate limited")
+
+        class FakeAnthropicClient:
+            def __init__(self):
+                self.messages = FakeMessages()
+
+        with tempfile.TemporaryDirectory() as td:
+            budget = DailyBudget(BudgetConfig(daily_usd_cap=1.0, log_path=Path(td) / "b.json"))
+            client = AnthropicLLMClient(budget=budget)
+            fake = FakeAnthropicClient()
+            client.client = fake
+
+            resp = client.complete(model="claude-opus-4-8", system="s", user="u", temperature=0.1)
+
+            self.assertIn("error", resp)
+            self.assertIn("429", resp["error"])
+            self.assertEqual(fake.messages.calls, 1,
+                "an unrelated error must NOT trigger the temperature-stripping retry")
 
 
 if __name__ == "__main__":
