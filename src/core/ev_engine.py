@@ -87,7 +87,8 @@ def build_ev_thesis(
         f"{filing_block}\n\n"
         "Emit the JSON for EVThesis with fields: ticker, event_type, upside_pct, p_upside, downside_pct, p_downside, "
         "expected_value_pct (you compute it), prior_accuracy_on_name, what_informed_holders_may_know_that_we_dont (substantive >=20 chars, name specific info gap), "
-        "tradeable_capacity_usd, event_risk_flags (array), source_filings (array). "
+        "tradeable_capacity_usd, event_risk_flags (array), source_filings (array), "
+        "reasoning (2-4 sentences: WHY these specific upside/downside/probability numbers, tied to concrete facts in the filing — not just the numbers themselves). "
         "Be humble in the what_informed... field."
     )
 

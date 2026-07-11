@@ -305,6 +305,33 @@ class ReactionLayer:
                 ref_price=self._ref_price(trig.ticker),
                 llm_calls=3,
             )
+            # Bug fix (2026-07-10): this path never wrote to Graveyard at all — only the
+            # decisions.ndjson telemetry got a truncated 280-char summary ("6 adversarial
+            # findings. Deterministic clean=True. High-sev=3."), never the actual findings
+            # text or the analyst's reasoning. Found asking "can we see WHY the auditor
+            # vetoed EQPT" and discovering the honest answer was "no, nothing was kept."
+            # Graveyard's `meta` column is free-form JSON and fully hood-owned (unlike
+            # decisions.ndjson, which is schema-validated against the external umbrella_core
+            # package) — the right durable home for full detail, not just a headline count.
+            if self.graveyard is not None:
+                try:
+                    self.graveyard.record_rejection(
+                        thesis,
+                        (det.summary or "auditor rejected"),
+                        regime=classify_regime(),
+                        meta={
+                            "adversarial_findings": [
+                                {"category": f.category, "finding": f.finding, "severity": f.severity}
+                                for f in det.adversarial_findings
+                            ],
+                            "deterministic_clean": det.deterministic.is_clean(),
+                            "deterministic_flags": list(det.deterministic.flags),
+                        },
+                    )
+                except Exception:
+                    # Telemetry is best-effort; must never break the trading path (same
+                    # discipline as _emit's own fail-safe guard above).
+                    pass
             return {"escalated": True, "auditor_rejected": True, "event_id": trig.event_id}
 
         # Risk + Exec (paper)

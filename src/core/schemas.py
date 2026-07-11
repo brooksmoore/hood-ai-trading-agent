@@ -54,6 +54,12 @@ class EVThesis:
     event_risk_flags: list[str] = field(default_factory=list)
     source_filings: list[str] = field(default_factory=list)  # EDGAR accession #s
 
+    # Added 2026-07-10: the analyst's free-text rationale for the numbers above (not just the
+    # numbers themselves). Owner asked to review WHY a thesis said what it said, not just its
+    # EV/p_up/downside — this had never been captured anywhere; only the structured numeric
+    # fields were persisted. Optional/defaulted so no existing caller or canned fixture breaks.
+    reasoning: str = ""
+
     # Optional runtime fields
     thesis_id: Optional[str] = None
     timestamp: Optional[str] = None  # ISO

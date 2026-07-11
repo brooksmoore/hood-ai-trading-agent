@@ -9,7 +9,7 @@ Rules:
 - Every test must be able to FAIL against broken code — that is their only job.
 - No network calls. All hermetic (fake LLM, fake MD, fake feed, tempdir).
 
-Twelve gates:
+Thirteen gates:
   G1 — CalibrationGate is fail-closed (empty/bad data → FAIL, never PASS)
   G2 — Section 11 safety veto fires (halted, no_two_sided_market, spread_too_wide)
   G3 — EV engine returns None on kill/budget/malformed (no fabrication)
@@ -27,6 +27,9 @@ Twelve gates:
         100%-rejected-as-header-only silent-death bug)
   G12 — Opus 4.8 calls must retry once, without temperature, on the
         "temperature is deprecated for this model" 400 (bounded, targeted, not blind)
+  G13 — The analyst's reasoning and the skeptic's full findings must be persisted, not just
+        headline numbers/counts (owner asked "why did the auditor veto EQPT" and the honest
+        answer was "we don't know, nothing was kept")
 """
 
 import sys
@@ -1057,6 +1060,127 @@ class GateOpusTemperatureRetry(unittest.TestCase):
             self.assertIn("429", resp["error"])
             self.assertEqual(fake.messages.calls, 1,
                 "an unrelated error must NOT trigger the temperature-stripping retry")
+
+
+
+# ---------------------------------------------------------------------------
+# G13 — Persist the analyst's reasoning and the skeptic's full findings
+# ---------------------------------------------------------------------------
+
+class GatePersistReasoningAndFindings(unittest.TestCase):
+    """Gate 13: owner asked "why did the auditor veto EQPT" (2026-07-10 real trading day) and
+    the honest answer was "we don't know" — the system only ever kept a headline count ("6
+    adversarial findings... High-sev=3") and the analyst's raw numbers, never the analyst's
+    rationale or the skeptic's specific objections. Two gaps, both fixed:
+
+    (1) `EVThesis` had no field for the analyst's free-text rationale — only its numeric
+        conclusions (EV%, p_up, downside, etc). Added `reasoning: str = ""`.
+    (2) `ReactionLayer.process_trigger`'s auditor-rejection path never wrote to Graveyard at
+        all — only `_emit()`'s schema-validated, 280-char-truncated decisions.ndjson summary.
+        The full adversarial findings (category/finding/severity, up to 6 of them) and the
+        analyst's reasoning were computed in memory and then discarded. Now written to
+        Graveyard's `meta` column (hood-owned, unconstrained JSON — not the external
+        umbrella_core-validated decisions schema) via `record_rejection`.
+
+    Fail-before (verified by the auditor): with EVThesis.reasoning removed, test 1 fails
+    (AttributeError). With the record_rejection call removed from reaction_layer.py, test 2
+    fails (0 graveyard rows instead of 1).
+    """
+
+    def test_g13_ev_thesis_carries_analyst_reasoning(self):
+        from src.core.llm_client import get_llm_client
+        from src.core.ev_engine import build_ev_thesis
+
+        fake = get_llm_client(fake=True)
+        fake.set_canned("REASON", json.dumps({
+            "ticker": "REASON", "event_type": "8k", "upside_pct": 20, "p_upside": 0.45,
+            "downside_pct": -25, "p_downside": 0.3, "expected_value_pct": 0.0,
+            "prior_accuracy_on_name": 0.55,
+            "what_informed_holders_may_know_that_we_dont": "Channel checks not in filings.",
+            "tradeable_capacity_usd": 2500, "event_risk_flags": [], "source_filings": ["acc1"],
+            "reasoning": "Filing discloses a new $10M contract with a named customer, which "
+                         "materially exceeds the company's trailing quarterly revenue run rate.",
+        }))
+        t = build_ev_thesis("REASON", "8k", "filing text", 2500, llm=fake)
+        self.assertIsNotNone(t)
+        self.assertIn("contract", t.reasoning,
+            "EVThesis must carry the analyst's free-text rationale, not just its numeric "
+            "conclusions (EV%, p_up, downside). Pre-fix: EVThesis had no `reasoning` field at "
+            "all, so this would raise AttributeError.")
+
+    def test_g13_auditor_rejection_persists_full_findings_to_graveyard(self):
+        from unittest.mock import MagicMock, patch
+        from src.core import reaction_layer as RL
+        from src.core.storage import GraveyardDB
+        from src.core.auditor import AdversarialFinding
+        from src.core.schemas import EVThesis, DeterministicScreenResult
+
+        thesis = EVThesis(
+            ticker="EQPTG13", event_type="8k", upside_pct=20.0, p_upside=0.62,
+            downside_pct=-25.0, p_downside=0.3, expected_value_pct=3.44,
+            prior_accuracy_on_name=0.5,
+            what_informed_holders_may_know_that_we_dont="Suppliers likely know order volume trends before public filings do.",
+            tradeable_capacity_usd=5000.0, source_filings=["0001693736-26-000013"],
+            reasoning="Filing suggests a new product line ramp.",
+        )
+        det_result = DeterministicScreenResult(
+            ticker="EQPTG13", dilution_risk=False, going_concern=False, thin_float=False,
+            low_adv=False, wide_spread=False, recent_halt=False, high_short_interest=False,
+        )
+        fake_report = MagicMock(
+            overall_pass=False,
+            summary="6 adversarial findings. Deterministic clean=True. High-sev=3.",
+            deterministic=det_result,
+            adversarial_findings=[
+                AdversarialFinding("ev_challenge", "p_upside 0.62 with a low-coverage name is "
+                    "usually narrative overfitting; historical hit rate on theses this "
+                    "aggressive is typically <35%.", "high"),
+                AdversarialFinding("bear", "No mention of backlog conversion timeline; revenue "
+                    "recognition could slip multiple quarters.", "high"),
+                AdversarialFinding("hole", "Thesis doesn't address customer concentration risk "
+                    "visible in the filing's related-party section.", "high"),
+                AdversarialFinding("info_asymmetry", "Thin coverage name — informed holders "
+                    "likely have supplier-side visibility we don't.", "med"),
+            ],
+        )
+
+        with tempfile.TemporaryDirectory() as td:
+            graveyard = GraveyardDB(Path(td))
+            reaction = RL.ReactionLayer(
+                llm=None, executor=None, risk=None, graveyard=graveyard, use_triage=False,
+            )
+            with patch.object(RL.ReactionLayer, "_tier1_filter", return_value=(True, "pass")), \
+                 patch.object(RL.ReactionLayer, "_haiku_triage", return_value=(True, "material")), \
+                 patch.object(RL, "build_ev_thesis", return_value=thesis), \
+                 patch.object(RL, "run_auditor", return_value=fake_report):
+                trig = RL.Trigger("e-g13-001", "EQPTG13", "8k", "x" * 80, False)
+                res = reaction.process_trigger(trig)
+
+            self.assertTrue(res.get("auditor_rejected"))
+
+            conn = graveyard._get_conn()
+            rows = conn.execute(
+                "SELECT reject_reason, raw_thesis, meta FROM trades WHERE ticker=?",
+                ("EQPTG13",),
+            ).fetchall()
+            self.assertEqual(len(rows), 1,
+                f"auditor rejection must write exactly one Graveyard row with full detail. "
+                f"Pre-fix: 0 rows (only decisions.ndjson got a truncated summary). Got: {rows}")
+            reject_reason, raw_thesis_json, meta_json = rows[0]
+            self.assertIn("6 adversarial findings", reject_reason)
+
+            raw_thesis = json.loads(raw_thesis_json)
+            self.assertIn("product line ramp", raw_thesis.get("reasoning", ""),
+                "the analyst's reasoning must be recoverable from the persisted raw_thesis")
+
+            meta = json.loads(meta_json)
+            findings = meta.get("adversarial_findings", [])
+            self.assertEqual(len(findings), 4,
+                f"all 4 adversarial findings (not just the count) must be persisted. Got: {findings}")
+            high_sev = [f for f in findings if f.get("severity") == "high"]
+            self.assertEqual(len(high_sev), 3)
+            self.assertTrue(any("backlog conversion" in f.get("finding", "") for f in findings),
+                "the actual finding TEXT must be recoverable, not just a severity count")
 
 
 if __name__ == "__main__":
