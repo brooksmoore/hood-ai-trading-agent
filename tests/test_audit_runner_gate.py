@@ -30,6 +30,10 @@ Thirteen gates:
   G13 — The analyst's reasoning and the skeptic's full findings must be persisted, not just
         headline numbers/counts (owner asked "why did the auditor veto EQPT" and the honest
         answer was "we don't know, nothing was kept")
+  G14 — run_paper's cycle must resolve auditor-vetoed +EV theses against real quotes once
+        their horizon passes (counterfactual mark-to-market) — via the REAL entry point,
+        not a reimplementation. The auditor is 0-for-10 all-time on approvals; nobody was
+        checking whether its vetoes were actually right.
 """
 
 import sys
@@ -1181,6 +1185,78 @@ class GatePersistReasoningAndFindings(unittest.TestCase):
             self.assertEqual(len(high_sev), 3)
             self.assertTrue(any("backlog conversion" in f.get("finding", "") for f in findings),
                 "the actual finding TEXT must be recoverable, not just a severity count")
+
+
+# ---------------------------------------------------------------------------
+# G14 — Counterfactual mark-to-market wired into run_paper's real cycle
+# ---------------------------------------------------------------------------
+
+class GateCounterfactualE2E(unittest.TestCase):
+    """Gate 14: an auditor-vetoed +EV thesis past its horizon must be resolved against a
+    real quote by run_paper's OWN cycle (not by calling resolve_counterfactuals directly —
+    that would just prove the unit works, not that it's wired in). Pre-fix: run_paper never
+    called resolve_counterfactuals at all, so vetoed +EV theses sat forever unscored and
+    nobody could tell whether the auditor's 0-for-10 record was righteous or miscalibrated.
+    """
+
+    def test_g14_run_paper_cycle_resolves_vetoed_positive_ev_thesis(self):
+        from run_paper import run_paper
+        from src.core.market_data import MockMarketData
+        from src.core.llm_client import get_llm_client
+        from src.core.schemas import EVThesis
+        from datetime import datetime, timedelta, timezone
+
+        TICKER = "CFACT"
+
+        class EmptyFeed:
+            def next_events(self, max_n=10):
+                return []
+
+        with tempfile.TemporaryDirectory() as td:
+            d = Path(td)
+            graveyard = GraveyardDB(d)
+            old_ts = (datetime.now(timezone.utc) - timedelta(days=10)).isoformat()
+            thesis = EVThesis(
+                ticker=TICKER, event_type="8k",
+                upside_pct=12, p_upside=0.6, downside_pct=-8, p_downside=0.25,
+                expected_value_pct=5.2, prior_accuracy_on_name=0.5,
+                what_informed_holders_may_know_that_we_dont="Unknown structural gap here.",
+                tradeable_capacity_usd=5000, event_risk_flags=[], timestamp=old_ts,
+            )
+            graveyard.record_rejection(
+                thesis, "6 adversarial findings. Deterministic clean=True. High-sev=3.",
+                regime="riskon_calm",
+                meta={"adversarial_findings": [], "deterministic_clean": True,
+                      "deterministic_flags": [], "ref_price": 10.0},
+            )
+            graveyard.close()
+
+            md = MockMarketData(price_series={TICKER: [("t0", 11.0)]})
+            llm = get_llm_client(fake=True)
+
+            summary = run_paper(
+                data_dir=d, logs_dir=d / "logs",
+                tickers=[TICKER], use_real_llm=False,
+                market_data=md, event_feed=EmptyFeed(),
+                max_cycles=1, hold_bars=0,
+                llm=llm, positions_path=d / "p.json", source="fake",
+            )
+            self.assertEqual(summary.get("cycles"), 1)
+
+            conn = GraveyardDB(d)._get_conn()
+            rows = conn.execute(
+                "SELECT realized_return_pct, meta FROM trades WHERE ticker=? AND outcome='counterfactual_resolved'",
+                (TICKER,),
+            ).fetchall()
+            self.assertEqual(len(rows), 1,
+                f"run_paper's cycle must call resolve_counterfactuals and produce exactly one "
+                f"counterfactual_resolved row for the backdated +EV rejection. "
+                f"Pre-fix: run_paper never called it, so 0 rows.")
+            realized, meta_json = rows[0]
+            self.assertIsNotNone(realized)
+            meta = json.loads(meta_json)
+            self.assertEqual(meta.get("entry_ref_price"), 10.0)
+            self.assertIn("auditor_was_right", meta)
 
 
 if __name__ == "__main__":

@@ -39,6 +39,7 @@ from src.core.reaction_layer import ReactionLayer, Trigger
 from src.core.ev_engine import build_ev_thesis
 from src.core.auditor import run_auditor
 from src.core.storage import GraveyardDB
+from src.core.counterfactual import resolve_counterfactuals
 from src.core.safety_core import SafetyCore
 from src.data.edgar import EdgarClient, strip_html_to_text
 from src.core.budget import DailyBudget, BudgetConfig
@@ -52,6 +53,30 @@ import urllib.request  # for DynamicEDGARFeed efts calls
 # so a missing env var causes conservatism, not over-sizing. Raise only after the
 # Phase 4 calibration gate passes and the owner explicitly sets the real allocation.
 _HOOD_SLEEVE_USD = float(os.getenv("HOOD_SLEEVE_USD", "500"))
+
+# G14: how long to wait before mark-to-marketing a VETOED +EV thesis against a real quote.
+COUNTERFACTUAL_HORIZON_DAYS = int(os.getenv("HOOD_COUNTERFACTUAL_HORIZON_DAYS", "5"))
+
+
+def _load_dotenv(path: Path = Path(".env")) -> None:
+    """Stdlib-only .env loader (no python-dotenv dep, per project zero-deps rule).
+    Values here OVERRIDE the shell environment so hood's ANTHROPIC_API_KEY is
+    controllable independently of the shared shell-wide export other bots read.
+    """
+    if not path.exists():
+        return
+    for line in path.read_text().splitlines():
+        line = line.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        key, _, value = line.partition("=")
+        key = key.strip()
+        value = value.strip().strip('"').strip("'")
+        if key:
+            os.environ[key] = value
+
+
+_load_dotenv()
 
 
 def load_universe(path: Optional[Path] = None, env_var: str = "HOOD_UNIVERSE") -> list[str]:
@@ -863,11 +888,31 @@ def run_paper(
         except Exception:
             pass
 
+        # G14: resolve auditor-vetoed +EV theses against later real quotes (free — quotes
+        # only, no LLM). Same cadence as position resolution; tells us whether the auditor's
+        # vetoes were right, independent of whether any position was ever opened.
+        try:
+            n_resolved = resolve_counterfactuals(
+                graveyard, md, horizon_days=COUNTERFACTUAL_HORIZON_DAYS,
+                decisions_ndjson_path=data_dir / "decisions.ndjson",
+            )
+            if n_resolved:
+                print(f"[COUNTERFACTUAL] resolved {n_resolved} vetoed +EV thesis(es) against real quotes")
+        except Exception as cf_err:
+            print(f"[COUNTERFACTUAL] resolve pass failed (non-fatal): {cf_err}")
+
         # Mandate 3: write machine-readable state snapshot after each cycle.
         try:
             _write_state_snapshot(data_dir, ex, budget, current_regime, results)
         except Exception as snap_err:
             print(f"[STATE SNAPSHOT] write failed (non-fatal): {snap_err}")
+
+        # Umbrella canonical snapshot (fail-safe; never blocks the paper loop).
+        try:
+            from snapshot_emit import emit_snapshot as _emit_umbrella_snapshot
+            _emit_umbrella_snapshot(data_dir=data_dir, budget_obj=budget)
+        except Exception as umb_err:
+            print(f"[UMBRELLA SNAPSHOT] emit failed (non-fatal): {umb_err}")
 
         # budget / kill respect already in path
         if (data_dir / "KILL").exists():
@@ -875,6 +920,12 @@ def run_paper(
         time.sleep(0.05)  # event driven in real; here short for demo
 
     graveyard.close()
+    # Final umbrella emit after loop exit (covers max_cycles=0 early exit / last state).
+    try:
+        from snapshot_emit import emit_snapshot as _emit_umbrella_snapshot
+        _emit_umbrella_snapshot(data_dir=data_dir, budget_obj=budget)
+    except Exception as umb_err:
+        print(f"[UMBRELLA SNAPSHOT] final emit failed (non-fatal): {umb_err}")
     return {"cycles": cycles, "results": results, "open_left": len(open_positions)}
 
 

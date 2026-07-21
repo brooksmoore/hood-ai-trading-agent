@@ -326,6 +326,10 @@ class ReactionLayer:
                             ],
                             "deterministic_clean": det.deterministic.is_clean(),
                             "deterministic_flags": list(det.deterministic.flags),
+                            # 2026-07-17: EVThesis carries no absolute price field (only relative
+                            # %s), so without this a vetoed thesis can never be mark-to-market'd
+                            # later — the counterfactual resolver needs an entry anchor.
+                            "ref_price": self._ref_price(trig.ticker),
                         },
                     )
                 except Exception:
